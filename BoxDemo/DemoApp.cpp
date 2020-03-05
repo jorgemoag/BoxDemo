@@ -1,4 +1,5 @@
 #include "DemoApp.h"
+#include "GPUMem.h"
 
 DemoApp::DemoApp()
 {
