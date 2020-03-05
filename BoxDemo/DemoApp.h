@@ -42,4 +42,11 @@ private:
 	ComPtr<ID3D12DescriptorHeap> RenderTargetViewHeap;
 	ComPtr<ID3D12Resource> RenderTargets[kFrameCount];
 	void CreateRenderTargets();
+
+	/* Pipeline */
+	ComPtr<ID3DBlob> LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target);
+	ComPtr<ID3D12RootSignature> RootSignature;
+	ComPtr<ID3D12PipelineState> PipelineState;
+	void CreateRootSignature();
+	void CreatePipeline();
 };

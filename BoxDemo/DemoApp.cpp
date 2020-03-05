@@ -6,6 +6,12 @@ DemoApp::DemoApp()
 	CreateDevice();
 	CreateQueues();
 	CreateFence();
+
+	//CreateSwapchain(hWnd, Width, Height);
+	CreateRenderTargets();
+
+	CreateRootSignature();
+	CreatePipeline();
 }
 
 void DemoApp::CreateDevice()
@@ -142,3 +148,109 @@ void DemoApp::CreateRenderTargets()
 		Device->CreateRenderTargetView(RenderTargets[FrameIndex].Get(), &RTDesc, DestDescriptor);
 	}
 }
+
+void DemoApp::CreateRootSignature()
+{
+	D3D12_ROOT_SIGNATURE_DESC SignatureDesc{};
+	SignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
+	SignatureDesc.NumParameters = 0;
+	SignatureDesc.NumStaticSamplers = 0;
+
+	ComPtr<ID3DBlob> Signature;
+	ComPtr<ID3DBlob> Error;
+
+	D3D12SerializeRootSignature(&SignatureDesc, D3D_ROOT_SIGNATURE_VERSION_1_0, &Signature, &Error);
+	Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(&RootSignature));
+}
+
+void DemoApp::CreatePipeline()
+{
+	/* Shaders */
+
+	ComPtr<ID3DBlob> VertexBlob = LoadShader(L"shaders.hlsl", "VSMain", "vs_5_1");
+
+	D3D12_SHADER_BYTECODE VertexShaderBytecode;
+	VertexShaderBytecode.pShaderBytecode = VertexBlob->GetBufferPointer();
+	VertexShaderBytecode.BytecodeLength = VertexBlob->GetBufferSize();
+
+	ComPtr<ID3DBlob> PixelBlob = LoadShader(L"shaders.hlsl", "PSMain", "ps_5_1");
+
+	D3D12_SHADER_BYTECODE PixelShaderBytecode;
+	PixelShaderBytecode.pShaderBytecode = PixelBlob->GetBufferPointer();
+	PixelShaderBytecode.BytecodeLength = PixelBlob->GetBufferSize();
+
+	/* Input Layout */
+
+	D3D12_INPUT_ELEMENT_DESC pInputElementDescs[] = {
+		// SemanticName; SemanticIndex; Format; InputSlot; AlignedByteOffset; InputSlotClass; InstanceDataStepRate;
+		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 3 * 4, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+	};
+
+	D3D12_INPUT_LAYOUT_DESC InputLayout{};
+	InputLayout.NumElements = 2;
+	InputLayout.pInputElementDescs = pInputElementDescs;
+
+	/* Rasterizer Stage */
+
+	D3D12_RASTERIZER_DESC RasterizerState{};
+	RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+	RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	RasterizerState.FrontCounterClockwise = FALSE;
+	RasterizerState.DepthBias = D3D12_DEFAULT_DEPTH_BIAS;
+	RasterizerState.DepthBiasClamp = D3D12_DEFAULT_DEPTH_BIAS_CLAMP;
+	RasterizerState.SlopeScaledDepthBias = D3D12_DEFAULT_SLOPE_SCALED_DEPTH_BIAS;
+	RasterizerState.DepthClipEnable = TRUE;
+	RasterizerState.MultisampleEnable = FALSE;
+	RasterizerState.AntialiasedLineEnable = FALSE;
+	RasterizerState.ForcedSampleCount = 0;
+	RasterizerState.ConservativeRaster = D3D12_CONSERVATIVE_RASTERIZATION_MODE_OFF;
+
+	/* Blend State */
+
+	D3D12_BLEND_DESC BlendState{};
+	BlendState.AlphaToCoverageEnable = FALSE;
+	BlendState.IndependentBlendEnable = FALSE;
+	const D3D12_RENDER_TARGET_BLEND_DESC DefaultRenderTargetBlendDesc =
+	{
+	  FALSE,FALSE,
+	  D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+	  D3D12_BLEND_ONE, D3D12_BLEND_ZERO, D3D12_BLEND_OP_ADD,
+	  D3D12_LOGIC_OP_NOOP,
+	  D3D12_COLOR_WRITE_ENABLE_ALL,
+	};
+	for (UINT i = 0; i < D3D12_SIMULTANEOUS_RENDER_TARGET_COUNT; ++i)
+	{
+		BlendState.RenderTarget[i] = DefaultRenderTargetBlendDesc;
+	}
+
+	/* Depth Stencil */
+
+	D3D12_DEPTH_STENCIL_DESC DepthStencilState{};
+	DepthStencilState.DepthEnable = FALSE;
+	DepthStencilState.StencilEnable = FALSE;
+
+	/* Pipeline */
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC PSODesc{};
+	PSODesc.InputLayout = InputLayout;
+	PSODesc.pRootSignature = RootSignature.Get();
+	PSODesc.VS = VertexShaderBytecode;
+	PSODesc.PS = PixelShaderBytecode;
+	PSODesc.RasterizerState = RasterizerState;
+	PSODesc.BlendState = BlendState;
+	PSODesc.DepthStencilState = DepthStencilState;
+	PSODesc.SampleMask = UINT_MAX;
+	PSODesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	PSODesc.NumRenderTargets = 1;
+	PSODesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+	PSODesc.SampleDesc.Count = 1;
+
+	Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(&PipelineState));
+}
+
+ComPtr<ID3DBlob> DemoApp::LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target)
+{
+	return nullptr;
+}
+
