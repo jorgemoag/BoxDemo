@@ -1,5 +1,7 @@
 #include "DemoApp.h"
 #include "GPUMem.h"
+#include "TextureLoader.h"
+#include <vector>
 
 DemoApp::DemoApp(HWND hWnd, UINT Width, UINT Height)
 {
@@ -15,6 +17,7 @@ DemoApp::DemoApp(HWND hWnd, UINT Width, UINT Height)
 
 	SetViewportAndScissorRect(Width, Height);
 	CreateVertexBuffer();
+	LoadTexture();
 
 	CreateConstantBuffer();
 }
@@ -130,26 +133,95 @@ ComPtr<ID3DBlob> DemoApp::LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR
 	return ShaderBlob;
 }
 
+std::vector<UINT8> DemoApp::GenerateTextureData()
+{
+	const int TextureWidth = 256;
+	const int TextureHeight = 256;
+	const int TexturePixelSize = 4; // The number of bytes used to represent a pixel in the texture.
+
+	const UINT rowPitch = TextureWidth * TexturePixelSize;
+	const UINT cellPitch = rowPitch >> 3;        // The width of a cell in the checkboard texture.
+	const UINT cellHeight = TextureWidth >> 3;    // The height of a cell in the checkerboard texture.
+	const UINT textureSize = rowPitch * TextureHeight;
+
+	std::vector<UINT8> data(textureSize);
+	UINT8* pData = &data[0];
+
+	for (UINT n = 0; n < textureSize; n += TexturePixelSize)
+	{
+		UINT x = n % rowPitch;
+		UINT y = n / rowPitch;
+		UINT i = x / cellPitch;
+		UINT j = y / cellHeight;
+
+		if (i % 2 == j % 2)
+		{
+			pData[n] = 0x00;        // R
+			pData[n + 1] = 0x00;    // G
+			pData[n + 2] = 0x00;    // B
+			pData[n + 3] = 0xff;    // A
+		}
+		else
+		{
+			pData[n] = 0xff;        // R
+			pData[n + 1] = 0xff;    // G
+			pData[n + 2] = 0xff;    // B
+			pData[n + 3] = 0xff;    // A
+		}
+	}
+
+	return data;
+}
+
 void DemoApp::CreateRootSignature()
 {
-	D3D12_DESCRIPTOR_RANGE DescriptorRanges[1];
-	DescriptorRanges[0].BaseShaderRegister = 0;
-	DescriptorRanges[0].NumDescriptors = 1;
-	DescriptorRanges[0].OffsetInDescriptorsFromTableStart = 0;
-	DescriptorRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
-	DescriptorRanges[0].RegisterSpace = 0;
+	// Dos parametros: Un constant buffer para MVP y un descriptor table a la textura
+	D3D12_ROOT_PARAMETER RootParameters[2];
 
-	D3D12_ROOT_PARAMETER RootParameters[1];
+	// Constant Buffer
 	RootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
-	RootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	RootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
-	RootParameters[0].DescriptorTable.pDescriptorRanges = DescriptorRanges;
+	RootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+	RootParameters[0].Descriptor.RegisterSpace = 0;
+	RootParameters[0].Descriptor.ShaderRegister = 0;
 
+	// Texture
+	D3D12_DESCRIPTOR_RANGE TexDescriptorRanges[1];
+	TexDescriptorRanges[0].BaseShaderRegister = 0;
+	TexDescriptorRanges[0].NumDescriptors = 1;
+	TexDescriptorRanges[0].OffsetInDescriptorsFromTableStart = 0;
+	TexDescriptorRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+	TexDescriptorRanges[0].RegisterSpace = 0;
+
+	RootParameters[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	RootParameters[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	RootParameters[1].DescriptorTable.NumDescriptorRanges = _countof(TexDescriptorRanges);
+	RootParameters[1].DescriptorTable.pDescriptorRanges = TexDescriptorRanges;
+
+	// Samplers
+	D3D12_STATIC_SAMPLER_DESC SamplerDesc{};
+
+	SamplerDesc.ShaderRegister = 0;
+	SamplerDesc.RegisterSpace = 0;
+	SamplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+
+	SamplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_POINT;
+	SamplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	SamplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	SamplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_BORDER;
+	SamplerDesc.MipLODBias = 0;
+	SamplerDesc.MaxAnisotropy = 0;
+	SamplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_NEVER;
+	SamplerDesc.BorderColor = D3D12_STATIC_BORDER_COLOR_TRANSPARENT_BLACK;
+	SamplerDesc.MinLOD = 0.0f;
+	SamplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+
+	// Create Root Signature
 	D3D12_ROOT_SIGNATURE_DESC SignatureDesc{};
 	SignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 	SignatureDesc.NumParameters = _countof(RootParameters);
 	SignatureDesc.pParameters = RootParameters;
-	SignatureDesc.NumStaticSamplers = 0;
+	SignatureDesc.NumStaticSamplers = 1;
+	SignatureDesc.pStaticSamplers = &SamplerDesc;
 
 	ComPtr<ID3DBlob> Signature;
 	ComPtr<ID3DBlob> Error;
@@ -175,15 +247,16 @@ void DemoApp::CreatePipeline()
 	PixelShaderBytecode.BytecodeLength = PixelBlob->GetBufferSize();
 
 	/* Input Layout */
-	  // vamos a usar un Vertex con position y color
+	// vamos a usar un Vertex con position, uv y color
 	D3D12_INPUT_ELEMENT_DESC pInputElementDescs[] = {
 		// SemanticName; SemanticIndex; Format; InputSlot; AlignedByteOffset; InputSlotClass; InstanceDataStepRate;
-		  {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-		  {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 3 * 4, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"UV", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 4 * 3, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 4 * (3 + 2), D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 	};
 
 	D3D12_INPUT_LAYOUT_DESC InputLayout{};
-	InputLayout.NumElements = 2;
+	InputLayout.NumElements = _countof(pInputElementDescs);
 	InputLayout.pInputElementDescs = pInputElementDescs;
 
 	/* Rasterizer Stage */
@@ -324,15 +397,11 @@ void DemoApp::RecordCommandList()
 	CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	CommandList->IASetVertexBuffers(0, 1, &VertexBufferView);
 
-	ID3D12DescriptorHeap* Heaps[]{ ConstantBufferDescriptorHeap.Get() };
-	CommandList->SetDescriptorHeaps(
-		1 /* NumDescriptorHeaps */,
-		Heaps /* DescriptorHeaps */
-	);
-	CommandList->SetGraphicsRootDescriptorTable(
-		0, /* RootParameterIndex */
-		ConstantBufferDescriptorHeap->GetGPUDescriptorHandleForHeapStart() /* BaseDescriptor */
-	);
+	CommandList->SetGraphicsRootConstantBufferView(0, ConstantBufferResource->GetGPUVirtualAddress());
+
+	ID3D12DescriptorHeap* Heaps[]{ TextureDescriptorHeap.Get() };
+	CommandList->SetDescriptorHeaps(_countof(Heaps), Heaps);
+	CommandList->SetGraphicsRootDescriptorTable(1, TextureDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	CommandList->DrawInstanced(3, 1, 0, 0);
 
@@ -344,10 +413,10 @@ void DemoApp::RecordCommandList()
 void DemoApp::CreateVertexBuffer()
 {
 	Vertex Vertices[] = {
-		// { POS, COLOR }
-		{ { 0.0f, 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-		{ { 0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-		{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+		// { POS, UV, COLOR }
+		{ { 0.0f, 0.5f, 0.0f }, { 0.5f, 1.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+		{ { 0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } },
+		{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f }, { 1.0f, 1.0f, 1.0f, 1.0f } }
 	};
 
 	VertexBuffer = GPUMem::Buffer(Device.Get(), sizeof(Vertices), D3D12_HEAP_TYPE_DEFAULT);
@@ -406,13 +475,13 @@ void DemoApp::CreateConstantBuffer()
 	DescriptorHeapDesc.NumDescriptors = 1;
 	DescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; // constant buffer
 
-	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&ConstantBufferDescriptorHeap));
+	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&ContantBufferDescriptorHeap));
 
 	/* Create descriptor */
 	D3D12_CONSTANT_BUFFER_VIEW_DESC ConstantBufferViewDesc{};
 	ConstantBufferViewDesc.BufferLocation = ConstantBufferResource->GetGPUVirtualAddress();
 	ConstantBufferViewDesc.SizeInBytes = SizeInBytes;
-	Device->CreateConstantBufferView(&ConstantBufferViewDesc, ConstantBufferDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	Device->CreateConstantBufferView(&ConstantBufferViewDesc, ContantBufferDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 
 	D3D12_RANGE ReadRange;
 	ReadRange.Begin = 0;
@@ -429,6 +498,67 @@ void DemoApp::UpdateConstantBuffer()
 	SomeConstants.MVP = XMMatrixRotationZ(Angle);
 
 	memcpy(pConstantBufferData, &SomeConstants, sizeof(FSomeConstants));
+}
+
+void DemoApp::LoadTexture()
+{
+	TextureLoader Tex(L"texture.png");
+
+	TextureResource = GPUMem::Texture2D(Device.Get(), Tex.GetWidth(), Tex.GetHeight(), Tex.GetFormat());
+
+	D3D12_DESCRIPTOR_HEAP_DESC DescriptorHeapDesc{};
+	DescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	DescriptorHeapDesc.NumDescriptors = 1;
+	DescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&TextureDescriptorHeap));
+
+	D3D12_SHADER_RESOURCE_VIEW_DESC ResourceViewDesc{};
+	ResourceViewDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	ResourceViewDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	ResourceViewDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	ResourceViewDesc.Texture2D.MipLevels = 1;
+	Device->CreateShaderResourceView(TextureResource.Get(), &ResourceViewDesc, TextureDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+	SIZE_T SizeInBytes = (Tex.Size() + 256) & ~255;
+	ComPtr<ID3D12Resource> UploadBuffer = GPUMem::Buffer(Device.Get(), SizeInBytes, D3D12_HEAP_TYPE_UPLOAD);
+
+	UINT8* pData;
+	UploadBuffer->Map(0, nullptr, reinterpret_cast<void**>(&pData));
+	memcpy(pData, Tex.Pointer(), Tex.Size());
+	UploadBuffer->Unmap(0, nullptr);
+
+	CommandAllocator->Reset();
+	CommandList->Reset(CommandAllocator.Get(), nullptr);
+
+	D3D12_TEXTURE_COPY_LOCATION Dst{};
+	Dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
+	Dst.SubresourceIndex = 0;
+	Dst.pResource = TextureResource.Get();
+
+	D3D12_TEXTURE_COPY_LOCATION Src{};
+	Src.Type = D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT;
+	Src.pResource = UploadBuffer.Get();
+	Src.PlacedFootprint.Footprint.Depth = 1;
+	Src.PlacedFootprint.Footprint.Format = Tex.GetFormat();
+	Src.PlacedFootprint.Footprint.Width = Tex.GetWidth();
+	Src.PlacedFootprint.Footprint.Height = Tex.GetHeight();
+	Src.PlacedFootprint.Footprint.RowPitch = Tex.GetRowPitch();
+
+	CommandList->CopyTextureRegion(&Dst, 0, 0, 0, &Src, nullptr);
+
+	GPUMem::ResourceBarrier(
+		CommandList.Get(),
+		TextureResource.Get(),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+	);
+
+	CommandList->Close();
+
+	ID3D12CommandList* CommandLists[]{ CommandList.Get() };
+	CommandQueue->ExecuteCommandLists(_countof(CommandLists), CommandLists);
+
+	FlushAndWait();
 }
 
 void DemoApp::Tick()

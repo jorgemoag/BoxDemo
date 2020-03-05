@@ -12,6 +12,8 @@ using namespace Microsoft::WRL;
 #include <d3dcompiler.h>
 #include <DirectXMath.h>
 
+#include <vector>
+
 using namespace DirectX;
 
 static const UINT8 kFrameCount = 2;
@@ -67,6 +69,7 @@ private:
 	struct Vertex
 	{
 		XMFLOAT3 Position;
+		XMFLOAT2 UV;
 		XMFLOAT4 Color;
 	};
 	ComPtr<ID3D12Resource> VertexBuffer;
@@ -78,9 +81,10 @@ private:
 	D3D12_RECT ScissorRect;
 	void SetViewportAndScissorRect(int Width, int Height);
 
+
 	/* Constant Buffer */
 	ComPtr<ID3D12Resource> ConstantBufferResource;
-	ComPtr<ID3D12DescriptorHeap> ConstantBufferDescriptorHeap;
+	ComPtr<ID3D12DescriptorHeap> ContantBufferDescriptorHeap;
 	UINT8* pConstantBufferData; // puntero que obtendremos con ConstantBufferResource->Map(...)
 	void CreateConstantBuffer();
 
@@ -91,4 +95,11 @@ private:
 	};
 	FSomeConstants SomeConstants;
 	void UpdateConstantBuffer();
+
+	/* Resource */
+	ComPtr<ID3D12Resource> TextureResource;
+	ComPtr<ID3D12DescriptorHeap> TextureDescriptorHeap;
+	std::vector<UINT8> GenerateTextureData();
+	void LoadTexture();
+
 };

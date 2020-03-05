@@ -1,3 +1,5 @@
+#include "GPUMem.h"
+
 // GPUMem.cpp
 #include "GPUMem.h"
 
@@ -30,6 +32,44 @@ ComPtr<ID3D12Resource> GPUMem::Buffer(
 		D3D12_HEAP_FLAG_NONE,
 		&ResourceDesc,
 		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&Resource)
+	);
+
+	return Resource;
+}
+
+ComPtr<ID3D12Resource> GPUMem::Texture2D(
+	ID3D12Device* Device,
+	SIZE_T Width,
+	SIZE_T Height,
+	DXGI_FORMAT Format,
+	D3D12_RESOURCE_STATES InitialState
+)
+{
+	ComPtr<ID3D12Resource> Resource;
+
+	D3D12_RESOURCE_DESC ResourceDesc{};
+	ResourceDesc.Width = Width;
+	ResourceDesc.Height = Height;
+	ResourceDesc.DepthOrArraySize = 1;
+	ResourceDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	ResourceDesc.Alignment = D3D12_DEFAULT_RESOURCE_PLACEMENT_ALIGNMENT;
+	ResourceDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	ResourceDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+	ResourceDesc.MipLevels = 1;
+	ResourceDesc.SampleDesc.Count = 1;
+	ResourceDesc.SampleDesc.Quality = 0;
+	ResourceDesc.Format = Format;
+
+	D3D12_HEAP_PROPERTIES HeapProps{};
+	HeapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
+
+	Device->CreateCommittedResource(
+		&HeapProps,
+		D3D12_HEAP_FLAG_NONE,
+		&ResourceDesc,
+		InitialState,
 		nullptr,
 		IID_PPV_ARGS(&Resource)
 	);
