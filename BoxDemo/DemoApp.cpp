@@ -15,11 +15,19 @@ DemoApp::DemoApp(HWND hWnd, UINT Width, UINT Height)
 
 	SetViewportAndScissorRect(Width, Height);
 	CreateVertexBuffer();
+
+	CreateConstantBuffer();
 }
 
 void DemoApp::CreateDevice()
 {
-	CreateDXGIFactory1(IID_PPV_ARGS(&Factory));
+	ComPtr<ID3D12Debug> DebugController;
+	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&DebugController))))
+	{
+		DebugController->EnableDebugLayer();
+	}
+
+	CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&Factory));
 
 	ComPtr<IDXGIAdapter1> Adapter;
 	bool bAdapterFound = false;
@@ -124,12 +132,23 @@ ComPtr<ID3DBlob> DemoApp::LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR
 
 void DemoApp::CreateRootSignature()
 {
-	/* RootSignature vacío, no le pasamos decriptores
-	  (ni texturas, ni constant buffer, etc.,) a los shaders */
+	D3D12_DESCRIPTOR_RANGE DescriptorRanges[1];
+	DescriptorRanges[0].BaseShaderRegister = 0;
+	DescriptorRanges[0].NumDescriptors = 1;
+	DescriptorRanges[0].OffsetInDescriptorsFromTableStart = 0;
+	DescriptorRanges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_CBV;
+	DescriptorRanges[0].RegisterSpace = 0;
+
+	D3D12_ROOT_PARAMETER RootParameters[1];
+	RootParameters[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
+	RootParameters[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	RootParameters[0].DescriptorTable.NumDescriptorRanges = 1;
+	RootParameters[0].DescriptorTable.pDescriptorRanges = DescriptorRanges;
 
 	D3D12_ROOT_SIGNATURE_DESC SignatureDesc{};
 	SignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
-	SignatureDesc.NumParameters = 0;
+	SignatureDesc.NumParameters = _countof(RootParameters);
+	SignatureDesc.pParameters = RootParameters;
 	SignatureDesc.NumStaticSamplers = 0;
 
 	ComPtr<ID3DBlob> Signature;
@@ -305,6 +324,16 @@ void DemoApp::RecordCommandList()
 	CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	CommandList->IASetVertexBuffers(0, 1, &VertexBufferView);
 
+	ID3D12DescriptorHeap* Heaps[]{ ConstantBufferDescriptorHeap.Get() };
+	CommandList->SetDescriptorHeaps(
+		1 /* NumDescriptorHeaps */,
+		Heaps /* DescriptorHeaps */
+	);
+	CommandList->SetGraphicsRootDescriptorTable(
+		0, /* RootParameterIndex */
+		ConstantBufferDescriptorHeap->GetGPUDescriptorHandleForHeapStart() /* BaseDescriptor */
+	);
+
 	CommandList->DrawInstanced(3, 1, 0, 0);
 
 	GPUMem::ResourceBarrier(CommandList.Get(), RenderTargets[BackFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
@@ -363,8 +392,48 @@ void DemoApp::SetViewportAndScissorRect(int Width, int Height)
 	ScissorRect.bottom = Height;
 }
 
+void DemoApp::CreateConstantBuffer()
+{
+	// Esta línea tiene un error que enseguida vamos a corregir -->
+	UINT SizeInBytes = (sizeof(FSomeConstants) + 256) & 256;
+
+	ConstantBufferResource = GPUMem::Buffer(Device.Get(), SizeInBytes, D3D12_HEAP_TYPE_UPLOAD);
+
+	/* Descriptor Heap */
+	D3D12_DESCRIPTOR_HEAP_DESC DescriptorHeapDesc{};
+	DescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	DescriptorHeapDesc.NodeMask = 0;
+	DescriptorHeapDesc.NumDescriptors = 1;
+	DescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV; // constant buffer
+
+	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&ConstantBufferDescriptorHeap));
+
+	/* Create descriptor */
+	D3D12_CONSTANT_BUFFER_VIEW_DESC ConstantBufferViewDesc{};
+	ConstantBufferViewDesc.BufferLocation = ConstantBufferResource->GetGPUVirtualAddress();
+	ConstantBufferViewDesc.SizeInBytes = SizeInBytes;
+	Device->CreateConstantBufferView(&ConstantBufferViewDesc, ConstantBufferDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+
+	D3D12_RANGE ReadRange;
+	ReadRange.Begin = 0;
+	ReadRange.End = 0;
+	ConstantBufferResource->Map(0, &ReadRange, reinterpret_cast<void**>(&pConstantBufferData));
+}
+
+void DemoApp::UpdateConstantBuffer()
+{
+	static float Angle = 0.0f;
+
+	Angle += 0.005f;
+
+	SomeConstants.MVP = XMMatrixRotationZ(Angle);
+
+	memcpy(pConstantBufferData, &SomeConstants, sizeof(FSomeConstants));
+}
+
 void DemoApp::Tick()
 {
+	UpdateConstantBuffer();
 	RecordCommandList();
 	ID3D12CommandList* ppCommandLists[] = { CommandList.Get() };
 	CommandQueue->ExecuteCommandLists(1, ppCommandLists);

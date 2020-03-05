@@ -1,4 +1,9 @@
 // shaders.hlsl
+cbuffer SomeConstants : register(b0)
+{
+    float4x4 MVP;
+}
+
 struct VS2PS
 {
     float4 position : SV_Position;
@@ -8,7 +13,7 @@ struct VS2PS
 VS2PS VSMain(float3 position : POSITION, float4 color : COLOR)
 {
     VS2PS vs2ps;
-    vs2ps.position = float4(position, 1.0);
+    vs2ps.position = mul(MVP, float4(position, 1.0));
     vs2ps.color = color;
     return vs2ps;
 }

@@ -77,4 +77,18 @@ private:
 	D3D12_VIEWPORT Viewport;
 	D3D12_RECT ScissorRect;
 	void SetViewportAndScissorRect(int Width, int Height);
+
+	/* Constant Buffer */
+	ComPtr<ID3D12Resource> ConstantBufferResource;
+	ComPtr<ID3D12DescriptorHeap> ConstantBufferDescriptorHeap;
+	UINT8* pConstantBufferData; // puntero que obtendremos con ConstantBufferResource->Map(...)
+	void CreateConstantBuffer();
+
+	/* Constant Buffer Values */
+	struct FSomeConstants
+	{
+		XMMATRIX MVP;
+	};
+	FSomeConstants SomeConstants;
+	void UpdateConstantBuffer();
 };
