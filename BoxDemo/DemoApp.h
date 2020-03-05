@@ -7,30 +7,35 @@
 using namespace Microsoft::WRL;
 
 // DirectX 12 specific headers.
-#include <d3d12.h> // D3D12xxxx
-#include <dxgi1_6.h> // factories
-#include <d3dcompiler.h> // compilar shaders
-#include <DirectXMath.h> // matematicas
+#include <d3d12.h>
+#include <dxgi1_6.h>
+#include <d3dcompiler.h>
+#include <DirectXMath.h>
+
+using namespace DirectX;
+
+static const UINT8 kFrameCount = 2;
 
 class DemoApp
 {
 public:
-	static const UINT kFrameCount = 2;
-
 	DemoApp(HWND hWnd, UINT Width, UINT Height);
 
 	/* Run */
 	void Tick();
 
 private:
+	/* Device */
 	ComPtr<IDXGIFactory4> Factory;
 	ComPtr<ID3D12Device> Device;
 
+	void CreateDevice();
+
+	/* Queue */
 	ComPtr<ID3D12CommandQueue> CommandQueue;
 	ComPtr<ID3D12CommandAllocator> CommandAllocator;
 	ComPtr<ID3D12GraphicsCommandList> CommandList;
 
-	void CreateDevice();
 	void CreateQueues();
 
 	/* Fences */
@@ -41,13 +46,6 @@ private:
 	void CreateFence();
 	void FlushAndWait();
 
-	/* Swapchain */
-	ComPtr<IDXGISwapChain3> Swapchain;
-	ComPtr<ID3D12DescriptorHeap> RenderTargetViewHeap;
-	ComPtr<ID3D12Resource> RenderTargets[kFrameCount]; // extracted from Swapchain
-	void CreateRenderTargets();
-	void CreateSwapchain(HWND hWnd, UINT Width, UINT Height);
-
 	/* Pipeline */
 	ComPtr<ID3DBlob> LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target);
 	ComPtr<ID3D12RootSignature> RootSignature;
@@ -55,6 +53,28 @@ private:
 	void CreateRootSignature();
 	void CreatePipeline();
 
+	/* Swapchain */
+	ComPtr<IDXGISwapChain3> Swapchain;
+	ComPtr<ID3D12DescriptorHeap> RenderTargetViewHeap;
+	ComPtr<ID3D12Resource> RenderTargets[kFrameCount]; // extracted from Swapchain
+	void CreateRenderTargets();
+	void CreateSwapchain(HWND hWnd, UINT Width, UINT Height);
+
 	/* Record command list for render */
 	void RecordCommandList();
+
+	/* Vertex Buffers */
+	struct Vertex
+	{
+		XMFLOAT3 Position;
+		XMFLOAT4 Color;
+	};
+	ComPtr<ID3D12Resource> VertexBuffer;
+	D3D12_VERTEX_BUFFER_VIEW VertexBufferView;
+	void CreateVertexBuffer();
+
+	/* Viewport and Scissor */
+	D3D12_VIEWPORT Viewport;
+	D3D12_RECT ScissorRect;
+	void SetViewportAndScissorRect(int Width, int Height);
 };

@@ -1,3 +1,4 @@
+// include Windows header
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include "DemoApp.h"
@@ -9,7 +10,31 @@ static const int Width = 800;
 static const int Height = 600;
 
 // Paso 1: Declarar una función que será la encargada de gestionar los eventos
-LRESULT CALLBACK WndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam);
+LRESULT CALLBACK WndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam)
+{
+	switch (Message)
+	{
+	case WM_KEYDOWN:
+	{
+		if (wParam == VK_ESCAPE)
+		{
+			DestroyWindow(hWnd);
+		}
+		return 0;
+	}
+	case WM_DESTROY:
+	{
+		PostQuitMessage(0);
+		return 0;
+	}
+	default:
+	{
+		// si no procesamos el evento, se lo pasamos al gestor por
+		// defecto que trae Windows
+		return DefWindowProc(hWnd, Message, wParam, lParam);
+	}
+	}
+}
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 {
@@ -64,7 +89,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 	// los eventos se llaman mensajes en windows.
 	MSG Message; ZeroMemory(&Message, sizeof(Message));
 
-	// DemoApp
 	DemoApp App{ hWnd, Width, Height };
 
 	// bucle infinito para preguntar por eventos
@@ -77,36 +101,12 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 			{
 				break;
 			}
-			App.Tick();
 		}
 		// distribuir el evento para que podamos procesarlo en WndProc.
 		TranslateMessage(&Message);
 		DispatchMessage(&Message);
+		App.Tick();
 	}
-}
 
-LRESULT CALLBACK WndProc(HWND hWnd, UINT Message, WPARAM wParam, LPARAM lParam)
-{
-	switch (Message)
-	{
-	case WM_KEYDOWN:
-	{
-		if (wParam == VK_ESCAPE)
-		{
-			DestroyWindow(hWnd);
-		}
-		return 0;
-	}
-	case WM_DESTROY:
-	{
-		PostQuitMessage(0);
-		return 0;
-	}
-	default:
-	{
-		// si no procesamos el evento, se lo pasamos al gestor por
-		// defecto que trae Windows
-		return DefWindowProc(hWnd, Message, wParam, lParam);
-	}
-	}
+	return 0;
 }

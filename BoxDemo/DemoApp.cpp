@@ -10,21 +10,16 @@ DemoApp::DemoApp(HWND hWnd, UINT Width, UINT Height)
 	CreateSwapchain(hWnd, Width, Height);
 	CreateRenderTargets();
 
-	// Para este ejemplo no necesitamos Pipeline ni RootSignature
-	//CreateRootSignature();
-	//CreatePipeline();
+	CreateRootSignature();
+	CreatePipeline();
+
+	SetViewportAndScissorRect(Width, Height);
+	CreateVertexBuffer();
 }
 
 void DemoApp::CreateDevice()
 {
-	// Capa de depuracion
-	ComPtr<ID3D12Debug> DebugController;
-	if (SUCCEEDED(D3D12GetDebugInterface(IID_PPV_ARGS(&DebugController))))
-	{
-		DebugController->EnableDebugLayer();
-	}
-
-	CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(&Factory));
+	CreateDXGIFactory1(IID_PPV_ARGS(&Factory));
 
 	ComPtr<IDXGIAdapter1> Adapter;
 	bool bAdapterFound = false;
@@ -42,19 +37,14 @@ void DemoApp::CreateDevice()
 		}
 
 		HRESULT hr;
-		hr = D3D12CreateDevice(Adapter.Get(),
-			D3D_FEATURE_LEVEL_11_0,
-			_uuidof(ID3D12Device),
-			nullptr);
+		hr = D3D12CreateDevice(Adapter.Get(), D3D_FEATURE_LEVEL_11_0, _uuidof(ID3D12Device), nullptr);
 		if (SUCCEEDED(hr))
 		{
 			bAdapterFound = true;
 		}
 	}
 
-	D3D12CreateDevice(Adapter.Get(),
-		D3D_FEATURE_LEVEL_11_0,
-		IID_PPV_ARGS(&Device));
+	D3D12CreateDevice(Adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&Device));
 }
 
 void DemoApp::CreateQueues()
@@ -81,8 +71,6 @@ void DemoApp::CreateQueues()
 		InitialState,
 		IID_PPV_ARGS(&CommandList)
 	);
-
-	// Por defecto cuando creas un CommandList está grabando  
 	CommandList->Close();
 }
 
@@ -97,18 +85,11 @@ void DemoApp::CreateFence()
 
 void DemoApp::FlushAndWait()
 {
-	// encolamos a la GPU el comando:
-	// "setea el valor de fence con este valor"
 	const UINT64 FenceValueToSignal = FenceValue;
 	CommandQueue->Signal(Fence.Get(), FenceValueToSignal);
 
-	// incrementamos FenceValue 
-	// para la siguiente vez que se llame
 	++FenceValue;
 
-	// si el valor de fence aún no es el valor que le dijimos
-	// a la GPU que marcase, significa que aún no ha llegado
-	// a ese comando. Esperamos.
 	if (Fence->GetCompletedValue() < FenceValueToSignal)
 	{
 		Fence->SetEventOnCompletion(FenceValueToSignal, FenceEvent);
@@ -116,37 +97,36 @@ void DemoApp::FlushAndWait()
 	}
 }
 
-void DemoApp::CreateRenderTargets()
+ComPtr<ID3DBlob> DemoApp::LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target)
 {
-	/* RenderTargetHeap */
-	D3D12_DESCRIPTOR_HEAP_DESC DescriptorHeapDesc{};
-	DescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	DescriptorHeapDesc.NodeMask = 0;
-	DescriptorHeapDesc.NumDescriptors = kFrameCount;
-	DescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	HRESULT hr;
 
-	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&RenderTargetViewHeap));
+	/* Shaders */
 
-	for (UINT FrameIndex = 0; FrameIndex < kFrameCount; ++FrameIndex)
+	ComPtr<ID3DBlob> ShaderBlob;
+	hr = D3DCompileFromFile(
+		Filename, // FileName
+		nullptr, nullptr, // MacroDefines, Includes, 		
+		EntryPoint, // FunctionEntryPoint
+		Target, // Target: "vs_5_0", "ps_5_0", "vs_5_1", "ps_5_1"
+		D3DCOMPILE_DEBUG | D3DCOMPILE_SKIP_OPTIMIZATION, // Compile flags
+		0, // Flags2
+		&ShaderBlob, // Code
+		nullptr // Error
+	);
+	if (FAILED(hr))
 	{
-		Swapchain->GetBuffer(FrameIndex, IID_PPV_ARGS(&RenderTargets[FrameIndex]));
-
-		D3D12_RENDER_TARGET_VIEW_DESC RTDesc{};
-		RTDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
-		RTDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		RTDesc.Texture2D.MipSlice = 0;
-		RTDesc.Texture2D.PlaneSlice = 0;
-
-		D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor = RenderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
-		DestDescriptor.ptr += ((SIZE_T)FrameIndex) * Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-		Device->CreateRenderTargetView(RenderTargets[FrameIndex].Get(), &RTDesc, DestDescriptor);
+		OutputDebugString(L"[ERROR] D3DCompileFromFile -- Vertex shader");
 	}
+
+	return ShaderBlob;
 }
 
-/* no lo usaremos en este ejemplo */
 void DemoApp::CreateRootSignature()
 {
+	/* RootSignature vacío, no le pasamos decriptores
+	  (ni texturas, ni constant buffer, etc.,) a los shaders */
+
 	D3D12_ROOT_SIGNATURE_DESC SignatureDesc{};
 	SignatureDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 	SignatureDesc.NumParameters = 0;
@@ -159,7 +139,6 @@ void DemoApp::CreateRootSignature()
 	Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(&RootSignature));
 }
 
-/* no lo usaremos en este ejemplo */
 void DemoApp::CreatePipeline()
 {
 	/* Shaders */
@@ -177,11 +156,11 @@ void DemoApp::CreatePipeline()
 	PixelShaderBytecode.BytecodeLength = PixelBlob->GetBufferSize();
 
 	/* Input Layout */
-
+	  // vamos a usar un Vertex con position y color
 	D3D12_INPUT_ELEMENT_DESC pInputElementDescs[] = {
 		// SemanticName; SemanticIndex; Format; InputSlot; AlignedByteOffset; InputSlotClass; InstanceDataStepRate;
-		{"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
-		{"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 3 * 4, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
+		  {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0},
+		  {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 3 * 4, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0}
 	};
 
 	D3D12_INPUT_LAYOUT_DESC InputLayout{};
@@ -246,10 +225,32 @@ void DemoApp::CreatePipeline()
 	Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(&PipelineState));
 }
 
-/* no lo usaremos en este ejemplo */
-ComPtr<ID3DBlob> DemoApp::LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target)
+void DemoApp::CreateRenderTargets()
 {
-	return nullptr;
+	/* RenderTargetHeap */
+	D3D12_DESCRIPTOR_HEAP_DESC DescriptorHeapDesc{};
+	DescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	DescriptorHeapDesc.NodeMask = 0;
+	DescriptorHeapDesc.NumDescriptors = kFrameCount;
+	DescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+
+	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&RenderTargetViewHeap));
+
+	for (UINT FrameIndex = 0; FrameIndex < kFrameCount; ++FrameIndex)
+	{
+		Swapchain->GetBuffer(FrameIndex, IID_PPV_ARGS(&RenderTargets[FrameIndex]));
+
+		D3D12_RENDER_TARGET_VIEW_DESC RTDesc{};
+		RTDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+		RTDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		RTDesc.Texture2D.MipSlice = 0;
+		RTDesc.Texture2D.PlaneSlice = 0;
+
+		D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor = RenderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
+		DestDescriptor.ptr += ((SIZE_T)FrameIndex) * Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		Device->CreateRenderTargetView(RenderTargets[FrameIndex].Get(), &RTDesc, DestDescriptor);
+	}
 }
 
 void DemoApp::CreateSwapchain(HWND hWnd, UINT Width, UINT Height)
@@ -286,19 +287,80 @@ void DemoApp::RecordCommandList()
 	const UINT BackFrameIndex = Swapchain->GetCurrentBackBufferIndex();
 
 	CommandAllocator->Reset();
-	CommandList->Reset(CommandAllocator.Get(), nullptr); // para borrar la pantalla no necesitamos un pipeline
+	CommandList->Reset(CommandAllocator.Get(), PipelineState.Get());
 
 	D3D12_CPU_DESCRIPTOR_HANDLE RenderTargetDescriptor = RenderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
 	RenderTargetDescriptor.ptr += ((SIZE_T)BackFrameIndex) * Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
 	GPUMem::ResourceBarrier(CommandList.Get(), RenderTargets[BackFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
 
-	const FLOAT ClearValue[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+	const FLOAT ClearValue[] = { 0.02f, 0.02f, 0.15f, 1.0f };
 	CommandList->ClearRenderTargetView(RenderTargetDescriptor, ClearValue, 0, nullptr);
+	CommandList->OMSetRenderTargets(1, &RenderTargetDescriptor, FALSE, nullptr);
+
+	CommandList->SetGraphicsRootSignature(RootSignature.Get());
+	CommandList->RSSetViewports(1, &Viewport);
+	CommandList->RSSetScissorRects(1, &ScissorRect);
+
+	CommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	CommandList->IASetVertexBuffers(0, 1, &VertexBufferView);
+
+	CommandList->DrawInstanced(3, 1, 0, 0);
 
 	GPUMem::ResourceBarrier(CommandList.Get(), RenderTargets[BackFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
 
 	CommandList->Close();
+}
+
+void DemoApp::CreateVertexBuffer()
+{
+	Vertex Vertices[] = {
+		// { POS, COLOR }
+		{ { 0.0f, 0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+		{ { 0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+		{ { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }
+	};
+
+	VertexBuffer = GPUMem::Buffer(Device.Get(), sizeof(Vertices), D3D12_HEAP_TYPE_DEFAULT);
+
+	ComPtr<ID3D12Resource> UploadBuffer = GPUMem::Buffer(Device.Get(), sizeof(Vertices), D3D12_HEAP_TYPE_UPLOAD);
+
+	UINT8* pData;
+	D3D12_RANGE ReadRange{ 0, 0 };
+	UploadBuffer->Map(0, &ReadRange, reinterpret_cast<void**>(&pData));
+	memcpy(pData, Vertices, sizeof(Vertices));
+	UploadBuffer->Unmap(0, nullptr);
+
+	CommandAllocator->Reset();
+	CommandList->Reset(CommandAllocator.Get(), nullptr);
+
+	GPUMem::ResourceBarrier(CommandList.Get(), VertexBuffer.Get(), D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_COPY_DEST);
+	CommandList->CopyResource(VertexBuffer.Get(), UploadBuffer.Get());
+	CommandList->Close();
+
+	ID3D12CommandList* const pCommandList[] = { CommandList.Get() };
+	CommandQueue->ExecuteCommandLists(1, pCommandList);
+
+	VertexBufferView.BufferLocation = VertexBuffer->GetGPUVirtualAddress();
+	VertexBufferView.SizeInBytes = sizeof(Vertices);
+	VertexBufferView.StrideInBytes = sizeof(Vertex);
+
+	FlushAndWait();
+}
+
+void DemoApp::SetViewportAndScissorRect(int Width, int Height)
+{
+	Viewport.TopLeftX = 0;
+	Viewport.TopLeftY = 0;
+	Viewport.Width = static_cast<FLOAT>(Width);
+	Viewport.Height = static_cast<FLOAT>(Height);
+	Viewport.MinDepth = D3D12_MIN_DEPTH;
+	Viewport.MaxDepth = D3D12_MAX_DEPTH;
+
+	ScissorRect.left = 0;
+	ScissorRect.top = 0;
+	ScissorRect.right = Width;
+	ScissorRect.bottom = Height;
 }
 
 void DemoApp::Tick()
