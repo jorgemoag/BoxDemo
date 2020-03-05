@@ -1,5 +1,6 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include "DemoApp.h"
 
 static const LPCTSTR WindowClassName = L"DirectXTest";
 static const LPCTSTR WindowTitle = L"aprendeunrealengine.com";
@@ -62,6 +63,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 	// Paso 5. Preguntar a Windows por eventos.
 	// los eventos se llaman mensajes en windows.
 	MSG Message; ZeroMemory(&Message, sizeof(Message));
+
+	// DemoApp
+	DemoApp App;
 
 	// bucle infinito para preguntar por eventos
 	while (true)
