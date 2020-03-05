@@ -1,17 +1,18 @@
 #include "DemoApp.h"
 #include "GPUMem.h"
 
-DemoApp::DemoApp()
+DemoApp::DemoApp(HWND hWnd, UINT Width, UINT Height)
 {
 	CreateDevice();
 	CreateQueues();
 	CreateFence();
 
-	//CreateSwapchain(hWnd, Width, Height);
+	CreateSwapchain(hWnd, Width, Height);
 	CreateRenderTargets();
 
-	CreateRootSignature();
-	CreatePipeline();
+	// Para este ejemplo no necesitamos Pipeline ni RootSignature
+	//CreateRootSignature();
+	//CreatePipeline();
 }
 
 void DemoApp::CreateDevice()
@@ -128,14 +129,8 @@ void DemoApp::CreateRenderTargets()
 
 	for (UINT FrameIndex = 0; FrameIndex < kFrameCount; ++FrameIndex)
 	{
-		/*
-		@TODO:
-		Crearemos el recurso RenderTargets[FrameIndex]
-		en siguientes tutoriales. En concreto, el relacionado
-		con Swapchain.
-		*/
+		Swapchain->GetBuffer(FrameIndex, IID_PPV_ARGS(&RenderTargets[FrameIndex]));
 
-		/* Crear el descriptor para RenderTargets[FrameIndex] */
 		D3D12_RENDER_TARGET_VIEW_DESC RTDesc{};
 		RTDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
 		RTDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -149,6 +144,7 @@ void DemoApp::CreateRenderTargets()
 	}
 }
 
+/* no lo usaremos en este ejemplo */
 void DemoApp::CreateRootSignature()
 {
 	D3D12_ROOT_SIGNATURE_DESC SignatureDesc{};
@@ -163,6 +159,7 @@ void DemoApp::CreateRootSignature()
 	Device->CreateRootSignature(0, Signature->GetBufferPointer(), Signature->GetBufferSize(), IID_PPV_ARGS(&RootSignature));
 }
 
+/* no lo usaremos en este ejemplo */
 void DemoApp::CreatePipeline()
 {
 	/* Shaders */
@@ -249,8 +246,66 @@ void DemoApp::CreatePipeline()
 	Device->CreateGraphicsPipelineState(&PSODesc, IID_PPV_ARGS(&PipelineState));
 }
 
+/* no lo usaremos en este ejemplo */
 ComPtr<ID3DBlob> DemoApp::LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target)
 {
 	return nullptr;
 }
 
+void DemoApp::CreateSwapchain(HWND hWnd, UINT Width, UINT Height)
+{
+	/* Swapchain */
+	DXGI_SWAP_CHAIN_DESC1 SwapchainDesc{};
+
+	SwapchainDesc.BufferCount = 2;
+	SwapchainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+
+	SwapchainDesc.Width = Width;
+	SwapchainDesc.Height = Height;
+	SwapchainDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+
+	SwapchainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+
+	SwapchainDesc.SampleDesc.Count = 1;
+
+	ComPtr<IDXGISwapChain1> SwapchainTemp;
+	Factory->CreateSwapChainForHwnd(
+		CommandQueue.Get(), // swap chain forces flush when does flip
+		hWnd,
+		&SwapchainDesc,
+		nullptr,
+		nullptr,
+		&SwapchainTemp
+	);
+
+	SwapchainTemp.As(&Swapchain);
+}
+
+void DemoApp::RecordCommandList()
+{
+	const UINT BackFrameIndex = Swapchain->GetCurrentBackBufferIndex();
+
+	CommandAllocator->Reset();
+	CommandList->Reset(CommandAllocator.Get(), nullptr); // para borrar la pantalla no necesitamos un pipeline
+
+	D3D12_CPU_DESCRIPTOR_HANDLE RenderTargetDescriptor = RenderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
+	RenderTargetDescriptor.ptr += ((SIZE_T)BackFrameIndex) * Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+	GPUMem::ResourceBarrier(CommandList.Get(), RenderTargets[BackFrameIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+	const FLOAT ClearValue[] = { 1.0f, 0.0f, 0.0f, 1.0f };
+	CommandList->ClearRenderTargetView(RenderTargetDescriptor, ClearValue, 0, nullptr);
+
+	GPUMem::ResourceBarrier(CommandList.Get(), RenderTargets[BackFrameIndex].Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
+
+	CommandList->Close();
+}
+
+void DemoApp::Tick()
+{
+	RecordCommandList();
+	ID3D12CommandList* ppCommandLists[] = { CommandList.Get() };
+	CommandQueue->ExecuteCommandLists(1, ppCommandLists);
+	Swapchain->Present(1, 0);
+	FlushAndWait();
+}

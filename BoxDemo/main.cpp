@@ -65,7 +65,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 	MSG Message; ZeroMemory(&Message, sizeof(Message));
 
 	// DemoApp
-	DemoApp App;
+	DemoApp App{ hWnd, Width, Height };
 
 	// bucle infinito para preguntar por eventos
 	while (true)
@@ -77,6 +77,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow)
 			{
 				break;
 			}
+			App.Tick();
 		}
 		// distribuir el evento para que podamos procesarlo en WndProc.
 		TranslateMessage(&Message);

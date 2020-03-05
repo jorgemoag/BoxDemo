@@ -17,7 +17,10 @@ class DemoApp
 public:
 	static const UINT kFrameCount = 2;
 
-	DemoApp();
+	DemoApp(HWND hWnd, UINT Width, UINT Height);
+
+	/* Run */
+	void Tick();
 
 private:
 	ComPtr<IDXGIFactory4> Factory;
@@ -38,10 +41,12 @@ private:
 	void CreateFence();
 	void FlushAndWait();
 
-	/* Render Targets */
+	/* Swapchain */
+	ComPtr<IDXGISwapChain3> Swapchain;
 	ComPtr<ID3D12DescriptorHeap> RenderTargetViewHeap;
-	ComPtr<ID3D12Resource> RenderTargets[kFrameCount];
+	ComPtr<ID3D12Resource> RenderTargets[kFrameCount]; // extracted from Swapchain
 	void CreateRenderTargets();
+	void CreateSwapchain(HWND hWnd, UINT Width, UINT Height);
 
 	/* Pipeline */
 	ComPtr<ID3DBlob> LoadShader(LPCWSTR Filename, LPCSTR EntryPoint, LPCSTR Target);
@@ -49,4 +54,7 @@ private:
 	ComPtr<ID3D12PipelineState> PipelineState;
 	void CreateRootSignature();
 	void CreatePipeline();
+
+	/* Record command list for render */
+	void RecordCommandList();
 };
