@@ -15,6 +15,8 @@ using namespace Microsoft::WRL;
 class DemoApp
 {
 public:
+	static const UINT kFrameCount = 2;
+
 	DemoApp();
 
 private:
@@ -35,4 +37,9 @@ private:
 
 	void CreateFence();
 	void FlushAndWait();
+
+	/* Render Targets */
+	ComPtr<ID3D12DescriptorHeap> RenderTargetViewHeap;
+	ComPtr<ID3D12Resource> RenderTargets[kFrameCount];
+	void CreateRenderTargets();
 };

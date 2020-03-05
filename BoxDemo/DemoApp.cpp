@@ -108,3 +108,37 @@ void DemoApp::FlushAndWait()
 		WaitForSingleObject(FenceEvent, INFINITE);
 	}
 }
+
+void DemoApp::CreateRenderTargets()
+{
+	/* RenderTargetHeap */
+	D3D12_DESCRIPTOR_HEAP_DESC DescriptorHeapDesc{};
+	DescriptorHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	DescriptorHeapDesc.NodeMask = 0;
+	DescriptorHeapDesc.NumDescriptors = kFrameCount;
+	DescriptorHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+
+	Device->CreateDescriptorHeap(&DescriptorHeapDesc, IID_PPV_ARGS(&RenderTargetViewHeap));
+
+	for (UINT FrameIndex = 0; FrameIndex < kFrameCount; ++FrameIndex)
+	{
+		/*
+		@TODO:
+		Crearemos el recurso RenderTargets[FrameIndex]
+		en siguientes tutoriales. En concreto, el relacionado
+		con Swapchain.
+		*/
+
+		/* Crear el descriptor para RenderTargets[FrameIndex] */
+		D3D12_RENDER_TARGET_VIEW_DESC RTDesc{};
+		RTDesc.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2D;
+		RTDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		RTDesc.Texture2D.MipSlice = 0;
+		RTDesc.Texture2D.PlaneSlice = 0;
+
+		D3D12_CPU_DESCRIPTOR_HANDLE DestDescriptor = RenderTargetViewHeap->GetCPUDescriptorHandleForHeapStart();
+		DestDescriptor.ptr += ((SIZE_T)FrameIndex) * Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+		Device->CreateRenderTargetView(RenderTargets[FrameIndex].Get(), &RTDesc, DestDescriptor);
+	}
+}
